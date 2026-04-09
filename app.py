@@ -3,6 +3,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import pandas as pd
 import copy
+from fpdf import FPDF
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Mario's Star Path Finder", page_icon="🍄", layout="wide")
@@ -10,7 +11,6 @@ st.set_page_config(page_title="Mario's Star Path Finder", page_icon="🍄", layo
 INF = float('inf')
 
 # --- DEFINICIÓN DE LOS NIVELES (GRAFOS) ---
-# Nivel 1: El ejemplo de clase (6 nodos)
 grafo_clase = [
     [0,   3, INF, INF, INF,   2],
     [INF, 0,  -1, INF, INF,   0],
@@ -20,7 +20,6 @@ grafo_clase = [
     [INF, INF, INF, INF, 5,   0]
 ]
 
-# Nivel 2: Desierto Pirámide (4 nodos - Rápido y engañoso)
 grafo_desierto = [
     [0,   8, INF,  1],
     [INF, 0,   1, INF],
@@ -28,38 +27,27 @@ grafo_desierto = [
     [INF, 2,   9,  0]
 ]
 
-# Nivel 3: Castillo de Bowser (5 nodos - Con pesos negativos y atajos)
-grafo_castillo = [
-    [0,   3,   8, INF, -4],
-    [INF, 0, INF,   1,  7],
-    [INF, 4,   0, INF, INF],
-    [2,  INF, -5,   0, INF],
-    [INF, INF, INF, 6,  0]
-]
-
 diccionario_niveles = {
     "Nivel 1: Ejemplo de Clase (6 Mundos)": grafo_clase,
     "Nivel 2: Desierto Pirámide (4 Mundos)": grafo_desierto,
-    "Nivel 3: Castillo de Bowser (5 Mundos)": grafo_castillo
+    "🛠️ Crear mi propio Nivel (Matriz Personalizada)": None # Opción especial
 }
 
-# --- LÓGICA DEL ALGORITMO CON ITERACIONES ---
+# --- LÓGICA DEL ALGORITMO ---
 @st.cache_data 
 def calcular_floyd_warshall_paso_a_paso(grafo):
     V = len(grafo)
     C = [[grafo[i][j] for j in range(V)] for i in range(V)]
     Z = [[None for _ in range(V)] for _ in range(V)]
     
-    # Inicialización de Z
     for i in range(V):
         for j in range(V):
             if i != j and grafo[i][j] != INF:
                 Z[i][j] = j
                 
-    iteraciones = [] # Aquí guardaremos el historial
-    
-    # Estado inicial k = -1 (Antes de empezar)
-    iteraciones.append(("Estado Inicial", copy.deepcopy(C), copy.deepcopy(Z)))
+    iteraciones = []
+    # Guardamos: (Nombre, Matriz C, Matriz Z, índice del pivote k)
+    iteraciones.append(("Estado Inicial", copy.deepcopy(C), copy.deepcopy(Z), -1))
 
     for k in range(V):
         for i in range(V):
@@ -67,8 +55,7 @@ def calcular_floyd_warshall_paso_a_paso(grafo):
                 if C[i][k] + C[k][j] < C[i][j]:
                     C[i][j] = C[i][k] + C[k][j]
                     Z[i][j] = Z[i][k]
-        # Guardar la fotografía de este paso k
-        iteraciones.append((f"Iteración k = {k + 1} (Pasando por Mundo {k + 1})", copy.deepcopy(C), copy.deepcopy(Z)))
+        iteraciones.append((f"Iteración k = {k + 1}", copy.deepcopy(C), copy.deepcopy(Z), k))
         
     return iteraciones
 
@@ -82,42 +69,102 @@ def obtener_ruta_lista(Z, inicio, destino):
         ruta.append(actual)
     return ruta
 
-def formatear_matriz(matriz, es_ruta=False):
-    """Convierte la matriz para que se vea bien en Pandas (cambia INF por ∞ y ajusta índices a 1)"""
-    df = pd.DataFrame(matriz)
-    df.index = [f"M{i+1}" for i in df.index]
-    df.columns = [f"M{i+1}" for i in df.columns]
-    
-    if es_ruta:
-        # Para la matriz Z, sumamos 1 porque los nodos para el usuario empiezan en 1, no en 0
-        df = df.map(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
-    else:
-        df = df.replace(INF, "∞")
-    return df
+# --- FUNCIONES DE ESTILO Y PDF ---
+def aplicar_estilo_pivote(df, k):
+    """Pinta la fila y columna del pivote k actual de color rojo tenue"""
+    styles = pd.DataFrame('', index=df.index, columns=df.columns)
+    if k != -1: # Si no es el estado inicial
+        styles.iloc[k, :] = 'background-color: rgba(229, 37, 33, 0.2); font-weight: bold;'
+        styles.iloc[:, k] = 'background-color: rgba(229, 37, 33, 0.2); font-weight: bold;'
+        styles.iloc[k, k] = 'background-color: rgba(229, 37, 33, 0.5); font-weight: bold; color: white;'
+    return styles
+
+def generar_pdf(historial):
+    """Genera un reporte PDF con todas las iteraciones"""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Courier", size=14, style='B')
+    pdf.cell(200, 10, txt="Reporte: Algoritmo de Floyd-Warshall", ln=True, align='C')
+    pdf.set_font("Courier", size=10)
+    pdf.cell(200, 10, txt="Detalle de iteraciones paso a paso.", ln=True, align='C')
+    pdf.ln(5)
+
+    for nombre_it, mat_c, mat_z, k in historial:
+        pdf.set_font("Courier", style='B', size=12)
+        pdf.cell(200, 10, txt=nombre_it, ln=True)
+        
+        if k != -1:
+            pdf.set_font("Courier", style='I', size=10)
+            pdf.cell(200, 6, txt=f"-> Pivote en evaluacion: Renglon {k+1} y Columna {k+1}", ln=True)
+        
+        pdf.set_font("Courier", size=10)
+        pdf.cell(200, 6, txt="Matriz C (Costos):", ln=True)
+        for fila in mat_c:
+            texto_fila = " | ".join([f"{str(val):>5}" if val != INF else "  INF" for val in fila])
+            pdf.cell(200, 5, txt=f"  [ {texto_fila} ]", ln=True)
+            
+        pdf.ln(2)
+        pdf.cell(200, 6, txt="Matriz Z (Rutas):", ln=True)
+        for fila in mat_z:
+            texto_fila = " | ".join([f"M{int(val)+1:>2}" if val is not None else "  -" for val in fila])
+            pdf.cell(200, 5, txt=f"  [ {texto_fila} ]", ln=True)
+            
+        pdf.ln(5)
+        pdf.cell(200, 2, txt="-"*70, ln=True)
+        pdf.ln(5)
+        
+    return pdf.output(dest='S').encode('latin1')
+
+def procesar_matriz_personalizada(df_editado):
+    """Convierte la tabla que llena el usuario a una matriz matemática de Python"""
+    matriz = []
+    for i in range(len(df_editado)):
+        fila = []
+        for j in range(len(df_editado.columns)):
+            val = str(df_editado.iloc[i, j]).strip().upper()
+            if val in ['INF', '∞', '', 'NONE', 'NAN']:
+                fila.append(INF)
+            else:
+                try:
+                    fila.append(float(val))
+                except:
+                    fila.append(INF)
+        matriz.append(fila)
+    return matriz
 
 # --- INTERFAZ WEB ---
 st.title("🍄 Super Mario's Floyd-Warshall 🌟")
-st.markdown("¡Resuelve grafos y descubre los atajos observando las iteraciones matemáticas!")
 
-# Selección de Nivel
 nivel_seleccionado = st.selectbox("🎮 SELECCIONA TU NIVEL:", list(diccionario_niveles.keys()))
-grafo_actual = diccionario_niveles[nivel_seleccionado]
+
+# --- LÓGICA DE LA MATRIZ PERSONALIZADA ---
+if nivel_seleccionado == "🛠️ Crear mi propio Nivel (Matriz Personalizada)":
+    st.info("Escribe los pesos de las conexiones. Usa 'INF' (o deja vacío) si no hay conexión directa. La diagonal debe ser 0.")
+    num_nodos_custom = st.slider("📏 Tamaño del Mapa (Nodos):", min_value=3, max_value=10, value=4)
+    
+    # Crear una matriz por defecto llena de INF, y 0 en la diagonal
+    df_default = pd.DataFrame(INF, index=[f"M{i+1}" for i in range(num_nodos_custom)], columns=[f"M{i+1}" for i in range(num_nodos_custom)])
+    for i in range(num_nodos_custom):
+        df_default.iloc[i, i] = 0.0
+    
+    # st.data_editor permite al usuario editar la tabla como si fuera Excel
+    df_usuario = st.data_editor(df_default, use_container_width=True)
+    grafo_actual = procesar_matriz_personalizada(df_usuario)
+else:
+    grafo_actual = diccionario_niveles[nivel_seleccionado]
+
 num_nodos = len(grafo_actual)
 nombres_mundos = [f"Mundo {i+1}" for i in range(num_nodos)]
 
-# Separador
 st.markdown("---")
-
 col_izq, col_der = st.columns([1, 2])
 
-# Calculamos todas las iteraciones
 historial_iteraciones = calcular_floyd_warshall_paso_a_paso(grafo_actual)
 matriz_C_final = historial_iteraciones[-1][1]
 matriz_Z_final = historial_iteraciones[-1][2]
 
 with col_izq:
     st.header("🚩 Planear Ruta")
-    
     origen = st.selectbox("📍 Inicio:", nombres_mundos, index=0)
     destino = st.selectbox("🏁 Destino:", nombres_mundos, index=num_nodos-1)
     
@@ -129,15 +176,40 @@ with col_izq:
 
     st.subheader("📊 Resultados")
     if costo == INF:
-        st.error("¡Mamma Mia! No hay un camino posible.")
+        st.error("¡No hay un camino posible!")
     else:
-        st.metric(label="Costo Total del Viaje", value=f"{costo} Monedas 💰")
-        nombres_ruta = [f"M{i+1}" for i in ruta]
-        st.success(f"**Ruta óptima:** {' ➔ '.join(nombres_ruta)}")
+        st.metric(label="Costo Total", value=f"{costo}")
+        st.success(f"**Ruta:** {' ➔ '.join([f'M{i+1}' for i in ruta])}")
+
+    st.markdown("---")
+    st.subheader("📄 Exportar Reporte")
+    st.write("Descarga todas las iteraciones detalladas.")
+    # Botón mágico para descargar el PDF generado
+    pdf_bytes = generar_pdf(historial_iteraciones)
+    st.download_button(label="📥 Descargar Reporte PDF", data=pdf_bytes, file_name="Iteraciones_Floyd_Warshall.pdf", mime="application/pdf")
 
 with col_der:
-    tab_mapa, tab_iteraciones = st.tabs(["🗺️ Mapa del Nivel", "🍄 Iteraciones (Paso a Paso)"])
+    tab_iteraciones, tab_mapa = st.tabs(["🍄 Iteraciones (Paso a Paso)", "🗺️ Mapa del Nivel"])
     
+    with tab_iteraciones:
+        st.markdown("Las celdas resaltadas en rojo indican la **fila y columna pivote ($k$)** utilizadas en esa iteración.")
+        
+        for nombre_it, mat_c, mat_z, k in historial_iteraciones:
+            with st.expander(f"{nombre_it} " + ("(Pivote: Renglón y Col. " + str(k+1) + ")" if k!=-1 else ""), expanded=(k == num_nodos-1)):
+                col_c, col_z = st.columns(2)
+                
+                # Preparamos DataFrames limpios
+                df_c = pd.DataFrame(mat_c, index=nombres_mundos, columns=nombres_mundos).replace(INF, "∞")
+                df_z = pd.DataFrame(mat_z, index=nombres_mundos, columns=nombres_mundos).map(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
+                
+                with col_c:
+                    st.markdown("**Matriz C (Costos)**")
+                    # Aplicamos el estilo de resaltado antes de mostrarlo
+                    st.dataframe(df_c.style.apply(aplicar_estilo_pivote, k=k, axis=None))
+                with col_z:
+                    st.markdown("**Matriz Z (Rutas)**")
+                    st.dataframe(df_z.style.apply(aplicar_estilo_pivote, k=k, axis=None))
+
     with tab_mapa:
         fig, ax = plt.subplots(figsize=(7, 5))
         G = nx.DiGraph()
@@ -147,23 +219,18 @@ with col_der:
                 if grafo_actual[i][j] != 0 and grafo_actual[i][j] != INF:
                     G.add_edge(i, j, weight=grafo_actual[i][j])
         
-        # Posicionamiento y colores de nodos estilo Mario
         pos = nx.circular_layout(G)
-        # Paleta colorida para los mundos
-        colores_mario = ["#E52521", "#43B047", "#5C94FC", "#FBD000", "#FF9900", "#9B59B6"]
+        colores_mario = ["#E52521", "#43B047", "#5C94FC", "#FBD000", "#FF9900", "#9B59B6", "#A569BD", "#F1C40F", "#E67E22", "#95A5A6"]
         node_colors = [colores_mario[i % len(colores_mario)] for i in range(num_nodos)]
         
-        # Dibujar nodos más pequeños (node_size=450) y con números empezando en 1
         etiquetas_nodos = {i: str(i+1) for i in range(num_nodos)}
-        nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=450, edgecolors="black", linewidths=1.5)
+        nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors[:num_nodos], node_size=450, edgecolors="black", linewidths=1.5)
         nx.draw_networkx_labels(G, pos, ax=ax, labels=etiquetas_nodos, font_color="white", font_weight="bold", font_size=10)
-        
-        # Aristas base
         nx.draw_networkx_edges(G, pos, ax=ax, edge_color="gray", arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.15")
+        
         labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=labels, font_size=10, font_weight="bold")
+        nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=labels, font_size=9)
 
-        # Resaltar ruta en verde grueso
         if ruta:
             aristas_ruta = [(ruta[i], ruta[i+1]) for i in range(len(ruta)-1)]
             nx.draw_networkx_nodes(G, pos, ax=ax, nodelist=ruta, node_color="#FFFFFF", node_size=500, edgecolors="#43B047", linewidths=3)
@@ -171,17 +238,3 @@ with col_der:
 
         ax.axis('off')
         st.pyplot(fig)
-
-    with tab_iteraciones:
-        st.markdown("Despliega cada iteración para ver cómo se actualizan los costos ($C$) y las rutas ($Z$).")
-        
-        # Crear un "acordeón" para cada iteración
-        for nombre_it, mat_c, mat_z in historial_iteraciones:
-            with st.expander(nombre_it, expanded=(nombre_it == historial_iteraciones[-1][0])):
-                col_c, col_z = st.columns(2)
-                with col_c:
-                    st.markdown("**Matriz C (Costos)**")
-                    st.dataframe(formatear_matriz(mat_c, es_ruta=False), use_container_width=True)
-                with col_z:
-                    st.markdown("**Matriz Z (Rutas)**")
-                    st.dataframe(formatear_matriz(mat_z, es_ruta=True), use_container_width=True)
