@@ -27,7 +27,6 @@ grafo_desierto = [
     [INF, 2,   9,  0]
 ]
 
-# Gráfica de tu tarea (Aislamiento en nodo 1 y 4)
 grafo_aislamiento = [
     [0,   0,   3,  -2],
     [INF, 0,   1,  -1],
@@ -35,7 +34,6 @@ grafo_aislamiento = [
     [INF, INF, INF, 0]
 ]
 
-# Gráfica de tu tarea (Ciclo Negativo entre 1, 2 y 3)
 grafo_ciclo_negativo = [
     [0,   1,   INF, INF],
     [INF, 0,  -2,   INF],
@@ -75,7 +73,6 @@ def calcular_floyd_warshall_paso_a_paso(grafo):
                         Z[i][j] = Z[i][k]
         iteraciones.append((f"Iteración k = {k + 1}", copy.deepcopy(C), copy.deepcopy(Z), k))
         
-    # DETECCIÓN DE ANOMALÍAS
     anomalias = {
         "ciclo_negativo": False,
         "nodos_aislados_iniciales": [],
@@ -155,6 +152,11 @@ def procesar_matriz_personalizada(df_editado):
     for i in range(len(df_editado)):
         fila = []
         for j in range(len(df_editado.columns)):
+            # SEGURIDAD: Forzar la diagonal a 0
+            if i == j:
+                fila.append(0.0)
+                continue
+                
             val = str(df_editado.iloc[i, j]).strip().upper()
             if val in ['INF', '∞', '', 'NONE', 'NAN']:
                 fila.append(INF)
@@ -172,11 +174,13 @@ st.title("🍄 Super Mario's Floyd-Warshall 🌟")
 nivel_seleccionado = st.selectbox("🎮 SELECCIONA TU NIVEL:", list(diccionario_niveles.keys()))
 
 if nivel_seleccionado == "🛠️ Crear mi propio Nivel (Matriz Personalizada)":
-    st.info("Escribe los pesos de las conexiones. Usa 'INF' (o deja vacío) si no hay conexión directa. La diagonal debe ser 0.")
+    st.info("Escribe los pesos de las conexiones. Usa 'INF' (o deja vacío) si no hay conexión directa. La diagonal se mantendrá en 0 automáticamente.")
     num_nodos_custom = st.slider("📏 Tamaño del Mapa (Nodos):", min_value=3, max_value=10, value=4)
+    
     df_default = pd.DataFrame(INF, index=[f"M{i+1}" for i in range(num_nodos_custom)], columns=[f"M{i+1}" for i in range(num_nodos_custom)])
     for i in range(num_nodos_custom):
         df_default.iloc[i, i] = 0.0
+        
     df_usuario = st.data_editor(df_default, use_container_width=True)
     grafo_actual = procesar_matriz_personalizada(df_usuario)
 else:
@@ -190,15 +194,25 @@ historial_iteraciones, anomalias = calcular_floyd_warshall_paso_a_paso(grafo_act
 matriz_C_final = historial_iteraciones[-1][1]
 matriz_Z_final = historial_iteraciones[-1][2]
 
-# --- MOSTRAR ALERTAS DE ANOMALÍAS ---
+# --- NUEVO: PANEL DE DIAGNÓSTICO DESTACADO ---
+st.markdown("---")
+st.subheader("🩺 Diagnóstico de la Red")
+red_sana = True
+
 if anomalias["ciclo_negativo"]:
-    st.error("☠️ **¡PELIGRO! Se detectó un Ciclo Negativo.** El algoritmo de Floyd no puede encontrar una ruta óptima porque el costo disminuye infinitamente dando vueltas en el ciclo.")
+    st.error("☠️ **¡PELIGRO! Se detectó un Ciclo Negativo.** El algoritmo de Floyd no puede encontrar una ruta óptima porque el costo disminuye infinitamente dando vueltas en el ciclo. Revisa tu matriz.")
+    red_sana = False
 if anomalias["nodos_aislados_iniciales"]:
     nodos_ini = [f"Mundo {i+1}" for i in anomalias["nodos_aislados_iniciales"]]
-    st.warning(f"⚠️ **Aislamiento Inicial:** Nadie puede llegar a los nodos: {', '.join(nodos_ini)}.")
+    st.warning(f"⚠️ **Aislamiento Inicial:** El(Los) nodo(s) **{', '.join(nodos_ini)}** solo exportan. Todos pueden salir de ahí, pero nadie puede llegar.")
+    red_sana = False
 if anomalias["nodos_aislados_terminales"]:
     nodos_term = [f"Mundo {i+1}" for i in anomalias["nodos_aislados_terminales"]]
-    st.warning(f"⚠️ **Aislamiento Terminal:** Nadie puede salir de los nodos: {', '.join(nodos_term)}.")
+    st.warning(f"⚠️ **Aislamiento Terminal:** El(Los) nodo(s) **{', '.join(nodos_term)}** son callejones sin salida. Todos llegan ahí, pero nadie puede salir.")
+    red_sana = False
+
+if red_sana:
+    st.success("✅ **Red Sana:** No se detectaron ciclos negativos ni aislamientos totales. Lista para calcular rutas.")
 
 st.markdown("---")
 col_izq, col_der = st.columns([1, 2])
@@ -216,12 +230,22 @@ with col_izq:
 
     st.subheader("📊 Resultados")
     if anomalias["ciclo_negativo"]:
-        st.error("No calculable (Ciclo Negativo)")
+        st.error("No calculable (Ciclo Negativo en la Red)")
     elif costo == INF:
-        st.error("¡No hay un camino posible!")
+        st.error("¡No hay un camino posible entre estos dos puntos!")
     else:
         st.metric(label="Costo Total", value=f"{costo}")
-        st.success(f"**Ruta:** {' ➔ '.join([f'M{i+1}' for i in ruta])}")
+        
+        # Desglose de la ruta paso a paso
+        if len(ruta) > 1:
+            st.markdown("**Desglose del viaje:**")
+            for i in range(len(ruta)-1):
+                nodo_a = ruta[i]
+                nodo_b = ruta[i+1]
+                costo_paso = grafo_actual[nodo_a][nodo_b]
+                st.write(f"M{nodo_a+1} ➔ M{nodo_b+1} (Costo: {costo_paso})")
+                
+        st.success(f"**Ruta Final:** {' ➔ '.join([f'M{i+1}' for i in ruta])}")
 
     st.markdown("---")
     st.subheader("📄 Exportar Reporte")
