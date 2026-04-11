@@ -176,11 +176,11 @@ if nivel_seleccionado == "🛠️ Crear mi propio Nivel (Matriz Personalizada)":
     st.info("Escribe los pesos de las conexiones. Usa 'INF' (o deja vacío) si no hay conexión directa. La diagonal se mantendrá en 0 automáticamente.")
     num_nodos_custom = st.slider("📏 Tamaño del Mapa (Nodos):", min_value=3, max_value=10, value=4)
     
-    df_default = pd.DataFrame(INF, index=[f"M{i+1}" for i in range(num_nodos_custom)], columns=[f"M{i+1}" for i in range(num_nodos_custom)])
+    # LA SOLUCIÓN ESTÁ AQUÍ: Todo se inicializa como texto ("INF" y "0")
+    df_default = pd.DataFrame("INF", index=[f"M{i+1}" for i in range(num_nodos_custom)], columns=[f"M{i+1}" for i in range(num_nodos_custom)])
     for i in range(num_nodos_custom):
-        df_default.iloc[i, i] = 0.0
+        df_default.iloc[i, i] = "0"
         
-    # CORRECCIÓN 1: Actualizado 'use_container_width' a 'width="stretch"'
     df_usuario = st.data_editor(df_default, width="stretch")
     grafo_actual = procesar_matriz_personalizada(df_usuario)
 else:
@@ -262,10 +262,8 @@ with col_der:
             with st.expander(f"{nombre_it} " + ("(Pivote: Renglón y Col. " + str(k+1) + ")" if k!=-1 else ""), expanded=(k == num_nodos-1)):
                 col_c, col_z = st.columns(2)
                 
-                # CORRECCIÓN 2: Convertir todo a texto (.astype(str)) para evitar el error de PyArrow
                 df_c = pd.DataFrame(mat_c, index=nombres_mundos, columns=nombres_mundos).astype(str).replace(str(INF), "∞")
                 
-                # Para la matriz Z, iteramos convirtiendo a string sin problemas de tipos nulos
                 df_z = pd.DataFrame(mat_z, index=nombres_mundos, columns=nombres_mundos)
                 for col in df_z.columns:
                     df_z[col] = df_z[col].apply(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
