@@ -152,7 +152,6 @@ def procesar_matriz_personalizada(df_editado):
     for i in range(len(df_editado)):
         fila = []
         for j in range(len(df_editado.columns)):
-            # SEGURIDAD: Forzar la diagonal a 0
             if i == j:
                 fila.append(0.0)
                 continue
@@ -181,7 +180,8 @@ if nivel_seleccionado == "🛠️ Crear mi propio Nivel (Matriz Personalizada)":
     for i in range(num_nodos_custom):
         df_default.iloc[i, i] = 0.0
         
-    df_usuario = st.data_editor(df_default, use_container_width=True)
+    # CORRECCIÓN 1: Actualizado 'use_container_width' a 'width="stretch"'
+    df_usuario = st.data_editor(df_default, width="stretch")
     grafo_actual = procesar_matriz_personalizada(df_usuario)
 else:
     grafo_actual = diccionario_niveles[nivel_seleccionado]
@@ -194,7 +194,7 @@ historial_iteraciones, anomalias = calcular_floyd_warshall_paso_a_paso(grafo_act
 matriz_C_final = historial_iteraciones[-1][1]
 matriz_Z_final = historial_iteraciones[-1][2]
 
-# --- NUEVO: PANEL DE DIAGNÓSTICO DESTACADO ---
+# --- PANEL DE DIAGNÓSTICO ---
 st.markdown("---")
 st.subheader("🩺 Diagnóstico de la Red")
 red_sana = True
@@ -236,7 +236,6 @@ with col_izq:
     else:
         st.metric(label="Costo Total", value=f"{costo}")
         
-        # Desglose de la ruta paso a paso
         if len(ruta) > 1:
             st.markdown("**Desglose del viaje:**")
             for i in range(len(ruta)-1):
@@ -263,8 +262,14 @@ with col_der:
             with st.expander(f"{nombre_it} " + ("(Pivote: Renglón y Col. " + str(k+1) + ")" if k!=-1 else ""), expanded=(k == num_nodos-1)):
                 col_c, col_z = st.columns(2)
                 
-                df_c = pd.DataFrame(mat_c, index=nombres_mundos, columns=nombres_mundos).replace(INF, "∞")
-                df_z = pd.DataFrame(mat_z, index=nombres_mundos, columns=nombres_mundos).map(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
+                # CORRECCIÓN 2: Convertir todo a texto (.astype(str)) para evitar el error de PyArrow
+                df_c = pd.DataFrame(mat_c, index=nombres_mundos, columns=nombres_mundos).astype(str).replace(str(INF), "∞")
+                
+                # Para la matriz Z, iteramos convirtiendo a string sin problemas de tipos nulos
+                df_z = pd.DataFrame(mat_z, index=nombres_mundos, columns=nombres_mundos)
+                for col in df_z.columns:
+                    df_z[col] = df_z[col].apply(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
+                df_z = df_z.astype(str)
                 
                 with col_c:
                     st.markdown("**Matriz C (Costos)**")
