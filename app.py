@@ -176,12 +176,12 @@ if nivel_seleccionado == "🛠️ Crear mi propio Nivel (Matriz Personalizada)":
     st.info("Escribe los pesos de las conexiones. Usa 'INF' (o deja vacío) si no hay conexión directa. La diagonal se mantendrá en 0 automáticamente.")
     num_nodos_custom = st.slider("📏 Tamaño del Mapa (Nodos):", min_value=3, max_value=10, value=4)
     
-    # LA SOLUCIÓN ESTÁ AQUÍ: Todo se inicializa como texto ("INF" y "0")
     df_default = pd.DataFrame("INF", index=[f"M{i+1}" for i in range(num_nodos_custom)], columns=[f"M{i+1}" for i in range(num_nodos_custom)])
     for i in range(num_nodos_custom):
         df_default.iloc[i, i] = "0"
         
-    df_usuario = st.data_editor(df_default, width="stretch")
+    # LA SOLUCIÓN: Agregamos un key dinámico basado en el tamaño para evitar choques de memoria
+    df_usuario = st.data_editor(df_default, width="stretch", key=f"matriz_editor_{num_nodos_custom}")
     grafo_actual = procesar_matriz_personalizada(df_usuario)
 else:
     grafo_actual = diccionario_niveles[nivel_seleccionado]
