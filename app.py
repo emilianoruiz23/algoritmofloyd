@@ -71,7 +71,7 @@ def calcular_floyd_warshall_paso_a_paso(grafo):
         nodo_raiz = anomalias["nodos_ciclo"][0]
         ruta_c = [nodo_raiz]
         actual = Z[nodo_raiz][nodo_raiz]
-        # Evitar loops infinitos de visualización
+        # Bucle protegido para extraer el ciclo
         while actual not in ruta_c and actual is not None:
             ruta_c.append(actual)
             actual = Z[actual][nodo_raiz]
@@ -81,13 +81,23 @@ def calcular_floyd_warshall_paso_a_paso(grafo):
 
     return iteraciones, anomalias
 
+# EL CINTURÓN DE SEGURIDAD (Protección contra Bucle Infinito)
 def obtener_ruta_lista(Z, inicio, destino):
     if Z[inicio][destino] is None: return []
     ruta = [inicio]
     actual = inicio
+    visitados = {inicio} # Guardamos memoria de donde hemos estado
+    
     while actual != destino:
         actual = Z[actual][destino]
         if actual is None: return []
+        
+        # Si la red nos manda a un lugar que ya pisamos, rompemos el bucle
+        if actual in visitados:
+            ruta.append(actual)
+            break 
+            
+        visitados.add(actual)
         ruta.append(actual)
     return ruta
 
@@ -115,7 +125,6 @@ def generar_pdf(historial, anomalias, num_islas):
             pdf.cell(200, 4, txt=" | ".join([f"M{int(v)+1:>2}" if v is not None else "  -" for v in fila]), ln=True)
         pdf.ln(4)
         
-    # --- AUDITORÍA AVANZADA EN PDF ---
     pdf.ln(5)
     pdf.set_font("Courier", style='B', size=12)
     pdf.cell(200, 10, txt="AUDITORIA AVANZADA DE LA RED", ln=True, align='L')
@@ -171,7 +180,6 @@ else:
 num_nodos = len(grafo_actual)
 nombres = [f"Mundo {i+1}" for i in range(num_nodos)]
 
-# Construir Grafo Físico para análisis de Islas
 G_analisis = nx.DiGraph()
 for i in range(num_nodos):
     G_analisis.add_node(i)
@@ -193,26 +201,27 @@ with col_izq:
     destino = st.selectbox("🏁 Destino:", nombres, index=len(nombres)-1)
     idx_o, idx_d = nombres.index(origen), nombres.index(destino)
     
-    ruta = obtener_ruta_lista(historial[-1][2], idx_o, idx_d)
-    costo = historial[-1][1][idx_o][idx_d]
-    
+    # LA REGLA DE ORO: Si hay ciclo negativo, ni intentamos planear la ruta
     if anomalias["ciclo_negativo"]: 
-        st.error("Ruta Abortada: Existe un Ciclo Negativo en el nivel.")
-    elif costo == INF: 
-        st.error("No hay puentes que conecten estos mundos.")
+        st.error("Ruta Abortada: Existe un Ciclo Negativo en el nivel. No es posible calcular una ruta segura.")
     else:
-        st.metric("Costo Total", f"{costo}")
-        st.success(f"Ruta: {' ➔ '.join([f'M{i+1}' for i in ruta])}")
+        ruta = obtener_ruta_lista(historial[-1][2], idx_o, idx_d)
+        costo = historial[-1][1][idx_o][idx_d]
+        
+        if costo == INF: 
+            st.error("No hay puentes que conecten estos mundos.")
+        else:
+            st.metric("Costo Total", f"{costo}")
+            st.success(f"Ruta: {' ➔ '.join([f'M{i+1}' for i in ruta])}")
     
     st.download_button("📥 Descargar Reporte y Diagnóstico PDF", generar_pdf(historial, anomalias, num_islas), "Auditoria_Floyd.pdf", "application/pdf")
 
-    # PANEL DE AUDITORÍA AVANZADA
     st.markdown("---")
     st.subheader("🩺 Auditoría de la Red")
     
     if anomalias["ciclo_negativo"]:
         st.error("☠️ **CICLO NEGATIVO:** Costo infinito detectado.")
-        st.write(f"**Rastreo:** {' ➔ '.join([f'M{n+1}' for n in anomalias['ruta_ciclo']])}")
+        st.write(f"**Rastreo del culpable:** {' ➔ '.join([f'M{n+1}' for n in anomalias['ruta_ciclo']])}")
     else:
         st.success("✅ Sin ciclos negativos.")
 
@@ -246,33 +255,27 @@ with col_der:
         fig, ax = plt.subplots()
         pos = nx.circular_layout(G_analisis)
         
-        # Dibujar Nodos base (Sanos)
         nodos_sanos = [n for n in G_analisis.nodes() if n not in anomalias["nodos_aislados_iniciales"] and n not in anomalias["nodos_aislados_terminales"]]
         nodos_aislados = anomalias["nodos_aislados_iniciales"] + anomalias["nodos_aislados_terminales"]
         
         nx.draw_networkx_nodes(G_analisis, pos, nodelist=nodos_sanos, node_color="#43B047", node_size=500, edgecolors="black", ax=ax)
-        # Nodos aislados en gris (Fantasmas)
         if nodos_aislados:
             nx.draw_networkx_nodes(G_analisis, pos, nodelist=nodos_aislados, node_color="#D5D8DC", node_size=500, edgecolors="gray", alpha=0.5, ax=ax)
             
         nx.draw_networkx_labels(G_analisis, pos, labels={i: str(i+1) for i in range(num_nodos)}, font_color="white", font_weight="bold")
         
-        # Dibujar Aristas
         aristas_normales = []
         aristas_ciclo = []
         
-        if anomalias["ciclo_negativo"]:
-            # Identificar las aristas del ciclo negativo
+        if anomalias["ciclo_negativo"] and len(anomalias["ruta_ciclo"]) > 0:
             rc = anomalias["ruta_ciclo"]
             aristas_ciclo = [(rc[i], rc[i+1]) for i in range(len(rc)-1)]
             aristas_normales = [e for e in G_analisis.edges() if e not in aristas_ciclo]
         else:
             aristas_normales = G_analisis.edges()
 
-        # Aristas normales en gris
         nx.draw_networkx_edges(G_analisis, pos, edgelist=aristas_normales, edge_color="gray", arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.15", ax=ax)
         
-        # Aristas del ciclo en ROJO
         if aristas_ciclo:
             nx.draw_networkx_edges(G_analisis, pos, edgelist=aristas_ciclo, edge_color="#E52521", width=3, arrows=True, arrowsize=20, connectionstyle="arc3,rad=0.15", ax=ax)
 
