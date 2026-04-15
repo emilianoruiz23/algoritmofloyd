@@ -112,7 +112,7 @@ def aplicar_estilo_pivote(df, k):
         styles.iloc[k, k] = 'background-color: rgba(229, 37, 33, 0.5); font-weight: bold; color: white;'
     return styles
 
-def generar_pdf(historial):
+def generar_pdf(historial, anomalias):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Courier", size=14, style='B')
@@ -121,29 +121,44 @@ def generar_pdf(historial):
     pdf.cell(200, 10, txt="Detalle de iteraciones paso a paso.", ln=True, align='C')
     pdf.ln(5)
 
+    # Iteraciones de matrices
     for nombre_it, mat_c, mat_z, k in historial:
-        pdf.set_font("Courier", style='B', size=12)
-        pdf.cell(200, 10, txt=nombre_it, ln=True)
+        pdf.set_font("Courier", style='B', size=11)
+        pdf.cell(200, 8, txt=nombre_it, ln=True)
         
         if k != -1:
-            pdf.set_font("Courier", style='I', size=10)
-            pdf.cell(200, 6, txt=f"-> Pivote en evaluacion: Renglon {k+1} y Columna {k+1}", ln=True)
+            pdf.set_font("Courier", style='I', size=9)
+            pdf.cell(200, 5, txt=f"-> Pivote en evaluacion: Renglon {k+1} y Columna {k+1}", ln=True)
         
-        pdf.set_font("Courier", size=10)
-        pdf.cell(200, 6, txt="Matriz C (Costos):", ln=True)
+        pdf.set_font("Courier", size=9)
+        pdf.cell(200, 5, txt="Matriz C (Costos):", ln=True)
         for fila in mat_c:
             texto_fila = " | ".join([f"{str(val):>5}" if val != INF else "  INF" for val in fila])
-            pdf.cell(200, 5, txt=f"  [ {texto_fila} ]", ln=True)
+            pdf.cell(200, 4, txt=f"  [ {texto_fila} ]", ln=True)
             
-        pdf.ln(2)
-        pdf.cell(200, 6, txt="Matriz Z (Rutas):", ln=True)
-        for fila in mat_z:
-            texto_fila = " | ".join([f"M{int(val)+1:>2}" if val is not None else "  -" for val in fila])
-            pdf.cell(200, 5, txt=f"  [ {texto_fila} ]", ln=True)
-            
-        pdf.ln(5)
-        pdf.cell(200, 2, txt="-"*70, ln=True)
-        pdf.ln(5)
+        pdf.ln(3)
+        
+    # --- SECCIÓN NUEVA: DIAGNÓSTICO FINAL EN PDF ---
+    pdf.ln(5)
+    pdf.set_font("Courier", style='B', size=12)
+    pdf.cell(200, 10, txt="DIAGNOSTICO FINAL DE LA RED", ln=True, align='L')
+    pdf.set_font("Courier", size=10)
+    
+    red_limpia = True
+    if anomalias["ciclo_negativo"]:
+        pdf.cell(200, 6, txt="- ALERTA: Se detecto un Ciclo Negativo en la red.", ln=True)
+        red_limpia = False
+    if anomalias["nodos_aislados_iniciales"]:
+        nodos = ", ".join([str(i+1) for i in anomalias["nodos_aislados_iniciales"]])
+        pdf.cell(200, 6, txt=f"- AISLAMIENTO INICIAL: Nodo(s) {nodos} (Sin entradas).", ln=True)
+        red_limpia = False
+    if anomalias["nodos_aislados_terminales"]:
+        nodos = ", ".join([str(i+1) for i in anomalias["nodos_aislados_terminales"]])
+        pdf.cell(200, 6, txt=f"- AISLAMIENTO TERMINAL: Nodo(s) {nodos} (Sin salidas).", ln=True)
+        red_limpia = False
+    
+    if red_limpia:
+        pdf.cell(200, 6, txt="- RED SANA: No se encontraron anomalias estructurales.", ln=True)
         
     return pdf.output(dest='S').encode('latin1')
 
@@ -155,7 +170,6 @@ def procesar_matriz_personalizada(df_editado):
             if i == j:
                 fila.append(0.0)
                 continue
-                
             val = str(df_editado.iloc[i, j]).strip().upper()
             if val in ['INF', '∞', '', 'NONE', 'NAN']:
                 fila.append(INF)
@@ -175,12 +189,9 @@ nivel_seleccionado = st.selectbox("🎮 SELECCIONA TU NIVEL:", list(diccionario_
 if nivel_seleccionado == "🛠️ Crear mi propio Nivel (Matriz Personalizada)":
     st.info("Escribe los pesos de las conexiones. Usa 'INF' (o deja vacío) si no hay conexión directa. La diagonal se mantendrá en 0 automáticamente.")
     num_nodos_custom = st.slider("📏 Tamaño del Mapa (Nodos):", min_value=3, max_value=10, value=4)
-    
     df_default = pd.DataFrame("INF", index=[f"M{i+1}" for i in range(num_nodos_custom)], columns=[f"M{i+1}" for i in range(num_nodos_custom)])
     for i in range(num_nodos_custom):
         df_default.iloc[i, i] = "0"
-        
-    # LA SOLUCIÓN: Agregamos un key dinámico basado en el tamaño para evitar choques de memoria
     df_usuario = st.data_editor(df_default, width="stretch", key=f"matriz_editor_{num_nodos_custom}")
     grafo_actual = procesar_matriz_personalizada(df_usuario)
 else:
@@ -194,26 +205,7 @@ historial_iteraciones, anomalias = calcular_floyd_warshall_paso_a_paso(grafo_act
 matriz_C_final = historial_iteraciones[-1][1]
 matriz_Z_final = historial_iteraciones[-1][2]
 
-# --- PANEL DE DIAGNÓSTICO ---
-st.markdown("---")
-st.subheader("🩺 Diagnóstico de la Red")
-red_sana = True
-
-if anomalias["ciclo_negativo"]:
-    st.error("☠️ **¡PELIGRO! Se detectó un Ciclo Negativo.** El algoritmo de Floyd no puede encontrar una ruta óptima porque el costo disminuye infinitamente dando vueltas en el ciclo. Revisa tu matriz.")
-    red_sana = False
-if anomalias["nodos_aislados_iniciales"]:
-    nodos_ini = [f"Mundo {i+1}" for i in anomalias["nodos_aislados_iniciales"]]
-    st.warning(f"⚠️ **Aislamiento Inicial:** El(Los) nodo(s) **{', '.join(nodos_ini)}** solo exportan. Todos pueden salir de ahí, pero nadie puede llegar.")
-    red_sana = False
-if anomalias["nodos_aislados_terminales"]:
-    nodos_term = [f"Mundo {i+1}" for i in anomalias["nodos_aislados_terminales"]]
-    st.warning(f"⚠️ **Aislamiento Terminal:** El(Los) nodo(s) **{', '.join(nodos_term)}** son callejones sin salida. Todos llegan ahí, pero nadie puede salir.")
-    red_sana = False
-
-if red_sana:
-    st.success("✅ **Red Sana:** No se detectaron ciclos negativos ni aislamientos totales. Lista para calcular rutas.")
-
+# --- VISTA PRINCIPAL ---
 st.markdown("---")
 col_izq, col_der = st.columns([1, 2])
 
@@ -230,77 +222,48 @@ with col_izq:
 
     st.subheader("📊 Resultados")
     if anomalias["ciclo_negativo"]:
-        st.error("No calculable (Ciclo Negativo en la Red)")
+        st.error("No calculable (Ciclo Negativo)")
     elif costo == INF:
-        st.error("¡No hay un camino posible entre estos dos puntos!")
+        st.error("¡No hay un camino posible!")
     else:
         st.metric(label="Costo Total", value=f"{costo}")
-        
         if len(ruta) > 1:
-            st.markdown("**Desglose del viaje:**")
+            st.markdown("**Desglose:**")
             for i in range(len(ruta)-1):
-                nodo_a = ruta[i]
-                nodo_b = ruta[i+1]
-                costo_paso = grafo_actual[nodo_a][nodo_b]
-                st.write(f"M{nodo_a+1} ➔ M{nodo_b+1} (Costo: {costo_paso})")
-                
-        st.success(f"**Ruta Final:** {' ➔ '.join([f'M{i+1}' for i in ruta])}")
+                st.write(f"M{ruta[i]+1} ➔ M{ruta[i+1]+1} (Costo: {grafo_actual[ruta[i]][ruta[i+1]]})")
+        st.success(f"**Ruta:** {' ➔ '.join([f'M{i+1}' for i in ruta])}")
 
     st.markdown("---")
     st.subheader("📄 Exportar Reporte")
-    st.write("Descarga todas las iteraciones detalladas.")
-    pdf_bytes = generar_pdf(historial_iteraciones)
-    st.download_button(label="📥 Descargar Reporte PDF", data=pdf_bytes, file_name="Iteraciones_Floyd_Warshall.pdf", mime="application/pdf")
+    # AHORA PASAMOS AMBOS ARGUMENTOS
+    pdf_bytes = generar_pdf(historial_iteraciones, anomalias)
+    st.download_button(label="📥 Descargar Reporte PDF", data=pdf_bytes, file_name="Reporte_Floyd_Warshall.pdf", mime="application/pdf")
 
 with col_der:
-    tab_iteraciones, tab_mapa = st.tabs(["🍄 Iteraciones (Paso a Paso)", "🗺️ Mapa del Nivel"])
-    
+    tab_iteraciones, tab_mapa = st.tabs(["🍄 Iteraciones", "🗺️ Mapa"])
     with tab_iteraciones:
-        st.markdown("Las celdas resaltadas en rojo indican la **fila y columna pivote ($k$)** utilizadas en esa iteración.")
-        
         for nombre_it, mat_c, mat_z, k in historial_iteraciones:
-            with st.expander(f"{nombre_it} " + ("(Pivote: Renglón y Col. " + str(k+1) + ")" if k!=-1 else ""), expanded=(k == num_nodos-1)):
-                col_c, col_z = st.columns(2)
-                
+            with st.expander(f"{nombre_it}", expanded=(k == num_nodos-1)):
                 df_c = pd.DataFrame(mat_c, index=nombres_mundos, columns=nombres_mundos).astype(str).replace(str(INF), "∞")
-                
-                df_z = pd.DataFrame(mat_z, index=nombres_mundos, columns=nombres_mundos)
-                for col in df_z.columns:
-                    df_z[col] = df_z[col].apply(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
-                df_z = df_z.astype(str)
-                
-                with col_c:
-                    st.markdown("**Matriz C (Costos)**")
-                    st.dataframe(df_c.style.apply(aplicar_estilo_pivote, k=k, axis=None))
-                with col_z:
-                    st.markdown("**Matriz Z (Rutas)**")
-                    st.dataframe(df_z.style.apply(aplicar_estilo_pivote, k=k, axis=None))
+                st.dataframe(df_c.style.apply(aplicar_estilo_pivote, k=k, axis=None))
 
     with tab_mapa:
         fig, ax = plt.subplots(figsize=(7, 5))
         G = nx.DiGraph()
         for i in range(num_nodos):
-            G.add_node(i)
             for j in range(num_nodos):
                 if grafo_actual[i][j] != 0 and grafo_actual[i][j] != INF:
                     G.add_edge(i, j, weight=grafo_actual[i][j])
-        
         pos = nx.circular_layout(G)
-        colores_mario = ["#E52521", "#43B047", "#5C94FC", "#FBD000", "#FF9900", "#9B59B6", "#A569BD", "#F1C40F", "#E67E22", "#95A5A6"]
-        node_colors = [colores_mario[i % len(colores_mario)] for i in range(num_nodos)]
-        
-        etiquetas_nodos = {i: str(i+1) for i in range(num_nodos)}
-        nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors[:num_nodos], node_size=450, edgecolors="black", linewidths=1.5)
-        nx.draw_networkx_labels(G, pos, ax=ax, labels=etiquetas_nodos, font_color="white", font_weight="bold", font_size=10)
-        nx.draw_networkx_edges(G, pos, ax=ax, edge_color="gray", arrows=True, arrowsize=15, connectionstyle="arc3,rad=0.15")
-        
-        labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos, ax=ax, edge_labels=labels, font_size=9)
-
-        if ruta and not anomalias["ciclo_negativo"]:
-            aristas_ruta = [(ruta[i], ruta[i+1]) for i in range(len(ruta)-1)]
-            nx.draw_networkx_nodes(G, pos, ax=ax, nodelist=ruta, node_color="#FFFFFF", node_size=500, edgecolors="#43B047", linewidths=3)
-            nx.draw_networkx_edges(G, pos, ax=ax, edgelist=aristas_ruta, edge_color="#43B047", width=3.5, arrows=True, arrowsize=20, connectionstyle="arc3,rad=0.15")
-
-        ax.axis('off')
+        nx.draw(G, pos, with_labels=True, node_color="#E52521", font_color="white", font_weight="bold", ax=ax, connectionstyle="arc3,rad=0.1")
         st.pyplot(fig)
+
+# --- DIAGNÓSTICO AL FINAL ---
+st.markdown("---")
+st.subheader("🩺 Diagnóstico Final de la Red")
+if anomalias["ciclo_negativo"]:
+    st.error("☠️ Ciclo Negativo Detectado.")
+elif not anomalias["nodos_aislados_iniciales"] and not anomalias["nodos_aislados_terminales"]:
+    st.success("✅ Red Sana.")
+else:
+    st.warning("⚠️ Se detectaron aislamientos.")
