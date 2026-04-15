@@ -83,6 +83,27 @@ def generar_pdf(historial, anomalias):
         for fila in mat_z:
             pdf.cell(200, 4, txt=" | ".join([f"M{int(v)+1:>2}" if v is not None else "  -" for v in fila]), ln=True)
         pdf.ln(4)
+        
+    # Diagnóstico al final del PDF
+    pdf.ln(5)
+    pdf.set_font("Courier", style='B', size=12)
+    pdf.cell(200, 10, txt="DIAGNOSTICO FINAL DE LA RED", ln=True, align='L')
+    pdf.set_font("Courier", size=10)
+    red_limpia = True
+    if anomalias["ciclo_negativo"]:
+        pdf.cell(200, 6, txt="- ALERTA: Se detecto un Ciclo Negativo en la red.", ln=True)
+        red_limpia = False
+    if anomalias["nodos_aislados_iniciales"]:
+        nodos = ", ".join([str(i+1) for i in anomalias["nodos_aislados_iniciales"]])
+        pdf.cell(200, 6, txt=f"- AISLAMIENTO INICIAL: Nodo(s) {nodos} (Sin entradas).", ln=True)
+        red_limpia = False
+    if anomalias["nodos_aislados_terminales"]:
+        nodos = ", ".join([str(i+1) for i in anomalias["nodos_aislados_terminales"]])
+        pdf.cell(200, 6, txt=f"- AISLAMIENTO TERMINAL: Nodo(s) {nodos} (Sin salidas).", ln=True)
+        red_limpia = False
+    if red_limpia:
+        pdf.cell(200, 6, txt="- RED SANA: No se encontraron anomalias.", ln=True)
+        
     return pdf.output(dest='S').encode('latin1')
 
 def procesar_matriz_personalizada(df_editado):
@@ -145,7 +166,11 @@ with col_der:
                     st.dataframe(df_c.style.apply(aplicar_estilo_pivote, k=k, axis=None))
                 with c2:
                     st.write("**Matriz Z (Rutas)**")
-                    df_z = pd.DataFrame(mat_z, index=nombres, columns=nombres).applymap(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
+                    # LA CORRECCIÓN ESTÁ AQUÍ (Columna por columna, sin applymap ni map)
+                    df_z = pd.DataFrame(mat_z, index=nombres, columns=nombres)
+                    for col in df_z.columns:
+                        df_z[col] = df_z[col].apply(lambda x: f"M{int(x)+1}" if pd.notnull(x) else "-")
+                    df_z = df_z.astype(str)
                     st.dataframe(df_z.style.apply(aplicar_estilo_pivote, k=k, axis=None))
 
     with tab_mapa:
